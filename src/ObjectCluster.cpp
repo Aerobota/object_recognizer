@@ -126,11 +126,14 @@ public:
 	cloud_cluster_list.push_back(cloud_cluster);
 	std::cout << "PointCloud representing the Cluster: " << cloud_cluster->points.size () << " data points." << std::endl;
       }
+    pcl::PointCloud<pcl::PointXYZ> cluster_sum;
     for(size_t i = 0; i < cloud_cluster_list.size(); i++){
-      sensor_msgs::PointCloud2 filter_cloud;
-      pcl::toROSMsg(*cloud, filter_cloud);
-      pc_pub.publish(filter_cloud);
+      cluster_sum += *cloud_cluster_list[i];
     }
+
+    sensor_msgs::PointCloud2 filter_cloud;
+    pcl::toROSMsg(cluster_sum, filter_cloud);
+    pc_pub.publish(filter_cloud);
   }
 };
 
