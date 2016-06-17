@@ -6,6 +6,7 @@ private:
   ros::Subscriber pc_sub;
   ros::NodeHandle nh;
   ros::Publisher pc_pub;
+  ros::Publisher vis_pub;
 
 public:
   explicit RGBDObjectCluster(ros::NodeHandle& n):
@@ -13,6 +14,7 @@ public:
     pc_sub = nh.subscribe("/camera/depth/points",1,
 			  &RGBDObjectCluster::Clustering, this);
     pc_pub = nh.advertise<sensor_msgs::PointCloud2>("/clustered_cloud2", 1);
+    vis_pub = nh.advertise<visualization_msgs::Marker>("visualization_marker",10);
     //ROS_INFO("starting clustering.");
   }
   
@@ -111,17 +113,68 @@ public:
 	std::cout << "PointCloud representing the Cluster:" << cloud_cluster->points.size() << " %d  data points." << std::endl;
 
       }
-    pcl::PointCloud<pcl::PointXYZRGB> cluster_sum;
+    pcl::PointCloud<pcl::PointXYZRGB> cluster_max;
     ROS_INFO("Cluster size is %d", cloud_cluster_list.size());
+    double size_max_pc = 0.0;
     for(size_t i = 0; i < cloud_cluster_list.size(); i++){
-      cluster_sum += cloud_cluster_list[i];
+      pcl::PointXYZRGB min_point, max_point; 
+      pcl::getMinMax3D(cloud_cluster_list[i], min_point, max_point);
+      double x = (max_point.x - min_point.x);
+      double y = (max_point.y - min_point.y);
+      double z = (max_point.z - min_point.z);
+      if(x * y * z > size_max_pc){
+	size_max_pc = x * y * z;
+	cluster_max = cloud_cluster_list[i];
+      }
     }
-    
+    displayBoundingBox(cluster_max);
     sensor_msgs::PointCloud2 filter_cloud;
-    pcl::toROSMsg(cluster_sum, filter_cloud);
+    pcl::toROSMsg(cluster_max, filter_cloud);
     filter_cloud.header.frame_id = "realsense_frame";
     pc_pub.publish(filter_cloud);
   }
+
+  void displayBoundingBox(pcl::PointCloud<pcl::PointXYZRGB> cloud_cluster){
+    visualization_msgs::Marker marker;
+    marker.type = visualization_msgs::Marker::CUBE;
+    marker.action = visualization_msgs::Marker::ADD;
+    pcl::PointXYZRGB min_point, max_point; 
+    pcl::getMinMax3D(cloud_cluster, min_point, max_point);
+    geometry_msgs::Point pt1;
+    pt1.x = max_point.x;
+    pt1.y = min_point.y;
+    pt1.z = max_point.z;
+    geometry_msgs::Point pt2;
+    pt2.x = min_point.x;
+    pt2.y = min_point.y; 
+    pt2.z = max_point.z; 
+    geometry_msgs::Point pt3;
+    pt3.x = max_point.x; 
+    pt3.y = min_point.y; 
+    pt3.z = min_point.z;
+
+    marker.header.frame_id = "realsense_frame";
+    marker.header.stamp = ros::Time::now();
+    marker.ns = "bounding_box";
+    marker.id = 0;
+    marker.color.a = 0.5;
+    marker.color.r = 0.0;
+    marker.color.g = 1.0;
+    marker.color.b = 0.0;
+    marker.scale.x = (max_point.x - min_point.x);
+    marker.scale.y = (max_point.y - min_point.y);
+    marker.scale.z = (max_point.z - min_point.z);
+    ROS_INFO("scale is %f, %f, %f",marker.scale.x,marker.scale.y,marker.scale.z);
+    marker.pose.position.x = (min_point.x + max_point.x)/2;
+    marker.pose.position.y = (min_point.y + max_point.y)/2;
+    marker.pose.position.z = (min_point.z + max_point.z)/2;
+    marker.pose.orientation.x = 0.0;
+    marker.pose.orientation.y = 0.0;
+    marker.pose.orientation.z = 0.0;
+    marker.pose.orientation.w = 1.0;
+    vis_pub.publish(marker);
+  }
+
 };
 
 
