@@ -130,7 +130,7 @@ public:
     displayBoundingBox(cluster_max);
     sensor_msgs::PointCloud2 filter_cloud;
     pcl::toROSMsg(cluster_max, filter_cloud);
-    filter_cloud.header.frame_id = "realsense_frame";
+    filter_cloud.header.frame_id = "base_link";
     pc_pub.publish(filter_cloud);
   }
 
@@ -153,7 +153,7 @@ public:
     pt3.y = min_point.y; 
     pt3.z = min_point.z;
 
-    marker.header.frame_id = "realsense_frame";
+    marker.header.frame_id = "base_link";
     marker.header.stamp = ros::Time::now();
     marker.ns = "bounding_box";
     marker.id = 0;
