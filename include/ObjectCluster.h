@@ -26,6 +26,7 @@
 #include <pcl/console/parse.h>
 #include <pcl/common/transforms.h>
 #include <vector> 
+#include <cmath>
 #include "ObjectClusterInterface.h"
 
 #endif // OBJECTCLUSTER_H
