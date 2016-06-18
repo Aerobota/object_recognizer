@@ -25,8 +25,12 @@
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/console/parse.h>
 #include <pcl/common/transforms.h>
+#include <pcl/common/centroid.h>
 #include <vector> 
 #include <cmath>
 #include "ObjectClusterInterface.h"
+
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 
 #endif // OBJECTCLUSTER_H

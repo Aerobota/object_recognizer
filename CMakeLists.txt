@@ -17,7 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
 )
 
-#find_package( PCL REQUIRED )
+find_package( Eigen3 REQUIRED )
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 

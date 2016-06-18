@@ -98,7 +98,6 @@ public:
     ec.setInputCloud (cloud);
     ec.extract (cluster_indices);
 
-    std::cout << cluster_indices.size() << std::endl;
 
     int j = 0;
     std::vector<pcl::PointCloud<pcl::PointXYZRGB> > cloud_cluster_list;
@@ -123,12 +122,16 @@ public:
     double prob = 0.0;
     double pos[3] = {0.0, 0.0, 0.0};
     double lpos[3] = {0.0, 0.0, 0.0};
+    double volume_max = 0.0;
 
     for(size_t i = 0; i < cloud_cluster_list.size(); i++){
       /** get max/min */
       pcl::PointXYZRGB min_point, max_point; 
       pcl::getMinMax3D(cloud_cluster_list[i], min_point, max_point);
 
+      Eigen::Vector4f centroid;
+      compute3DCentroid(cloud_cluster_list[i], centroid);
+      
       /** get size */
       double x = (max_point.x - min_point.x);
       double y = (max_point.y - min_point.y);
@@ -138,18 +141,17 @@ public:
       lpos[X] = pos[X];
       lpos[Y] = pos[Y];
       lpos[Z] = pos[Z];
-      pos[X] = (min_point.x + max_point.x)/2;
-      pos[Y] = (min_point.y + max_point.y)/2;
-      pos[Z] = (min_point.z + max_point.z)/2;
+      pos[X] = centroid.x();
+      pos[Y] = centroid.y();
+      pos[Z] = centroid.z();
 
-      if(WidthRule(x) * HeightRule(y) * DepthRule(z) * CentroidRule(pos) * KalmanFilter(lpos, pos) > prob){
-	prob = WidthRule(x) * HeightRule(y) * DepthRule(z) * CentroidRule(pos) * KalmanFilter(lpos, pos);
-	ROS_INFO("probability %f, %f, %f, %f, %f", WidthRule(x), HeightRule(y), DepthRule(z), CentroidRule(pos), KalmanFilter(lpos, pos));
+      if(CentroidRule(pos) * TangentRule(y/x) * VolumeRule(x*y*z) * HeightRule(y) > prob){
+	prob = CentroidRule(pos) * TangentRule(y/x) * VolumeRule(x*y*z) * HeightRule(y);
 	/** remember size and position */
 	size_max_pc = x * y * z;
-	size_max[0] = x;
-	size_max[1] = y;
-	size_max[2] = z;
+	size_max[X] = x;
+	size_max[Y] = y;
+	size_max[Z] = z;
 	max_pos[X] = pos[X];
 	max_pos[Y] = pos[Y];
 	max_pos[Z] = pos[Z];
@@ -157,18 +159,25 @@ public:
       }
     }
 
-
-
     ROS_INFO("human size : %f, %f, %f", size_max[X], size_max[Y], size_max[Z]);
-    
     ROS_INFO("human possibility : %f", prob * 100.0);
-
     ROS_INFO("position : %f, %f, %f", max_pos[X], max_pos[Y], max_pos[Z]);
+    ROS_INFO("volume : %f", size_max[X] * size_max[Y] * size_max[Z]);
+
     displayBoundingBox(cluster_max);
     sensor_msgs::PointCloud2 filter_cloud;
     pcl::toROSMsg(cluster_max, filter_cloud);
     filter_cloud.header.frame_id = "realsense_frame";
     pc_pub.publish(filter_cloud);
+  }
+
+  double VolumeRule(double volume){
+    if(volume > 0.7){
+      if(1.4 - volume < 0)
+	return 0.0;
+    }
+    else if(volume < 0.08)
+      return 0.0;
   }
   
   double WidthRule(double width){
@@ -182,14 +191,14 @@ public:
 
   double HeightRule(double height){
     double real_height = height + 0.4;
-    if(real_height >= 0.7 && real_height <= 2.5)
+    if(real_height >= 0.9 && real_height <= 2.5)
       return 1.0;
     
     else if(real_height > 2.2)
       return 0.0;
 
     else
-      return  real_height / 0.7;
+      return  real_height / 0.9;
   }
 
 
@@ -200,6 +209,16 @@ public:
       return z / 0.2;
     else
       return 0.7 / z;
+  }
+
+  double TangentRule(double tan){
+    if(tan >= 1.5 && 7.0 >= tan){
+      return 1.0;
+    }
+    else if(tan < 1.5)
+      return tan/1.5;
+    else
+      return 0;
   }
 
   double KalmanFilter(double lpos[], double pos[]){
@@ -220,6 +239,8 @@ public:
 
     return prob[X] * prob[Y] * prob[Z];
   }
+
+
 
   double CentroidRule(double centroid[]){
     if(centroid[Y] > 0)
@@ -269,6 +290,7 @@ public:
     marker.pose.orientation.w = 1.0;
     vis_pub.publish(marker);
   }
+
 
 };
 
