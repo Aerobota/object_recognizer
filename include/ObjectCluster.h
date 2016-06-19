@@ -4,6 +4,7 @@
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 #include <geometry_msgs/Point.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_cloud.h>
@@ -32,5 +33,9 @@
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+
+#include <object_recognizer/Prob.h>
+#include <object_recognizer/Info.h>
+#include <object_recognizer/Cluster.h>
 
 #endif // OBJECTCLUSTER_H

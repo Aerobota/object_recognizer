@@ -11,14 +11,16 @@ private:
   ros::NodeHandle nh;
   ros::Publisher pc_pub;
   ros::Publisher vis_pub;
+  ros::Publisher cluster_pub;
 
 public:
   explicit RGBDObjectCluster(ros::NodeHandle& n):
     nh(n) {
     pc_sub = nh.subscribe("/camera/depth/points",1,
 			  &RGBDObjectCluster::Clustering, this);
+    cluster_pub = nh.advertise<object_recognizer::Cluster>("/cluster", 1);
     pc_pub = nh.advertise<sensor_msgs::PointCloud2>("/clustered_cloud2", 1);
-    vis_pub = nh.advertise<visualization_msgs::Marker>("visualization_marker",10);
+    vis_pub = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker",10);
     //ROS_INFO("starting clustering.");
   }
   
@@ -114,17 +116,17 @@ public:
 	cloud_cluster_list.push_back(*cloud_cluster);
 
       }
-    pcl::PointCloud<pcl::PointXYZRGB> cluster_max;
-    //ROS_INFO("Cluster size is %d", cloud_cluster_list.size());
-    double size_max_pc = 0.0;
-    double size_max[3] = {0.0,0.0,0.0};
-    double max_pos [3] = {0.0,0.0,0.0};
-    double prob = 0.0;
+    /** position */
     double pos[3] = {0.0, 0.0, 0.0};
     double lpos[3] = {0.0, 0.0, 0.0};
-    double volume_max = 0.0;
+
+    object_recognizer::Cluster cluster;
+    object_recognizer::Prob prob;
+    object_recognizer::Info info;
 
     for(size_t i = 0; i < cloud_cluster_list.size(); i++){
+
+
       /** get max/min */
       pcl::PointXYZRGB min_point, max_point; 
       pcl::getMinMax3D(cloud_cluster_list[i], min_point, max_point);
@@ -136,7 +138,8 @@ public:
       double x = (max_point.x - min_point.x);
       double y = (max_point.y - min_point.y);
       double z = (max_point.z - min_point.z);
-
+      std::cout << "x y z" << std::endl;
+      std::cout << x << " " << y << " " << z << std::endl;
       /** update position */
       lpos[X] = pos[X];
       lpos[Y] = pos[Y];
@@ -144,31 +147,41 @@ public:
       pos[X] = centroid.x();
       pos[Y] = centroid.y();
       pos[Z] = centroid.z();
+      
+      /** setup probability */
+      prob.all = CentroidRule(pos) * TangentRule(y/x) * 1.0  * HeightRule(y);
+      prob.centroid = CentroidRule(pos);
+      prob.tangent = TangentRule(y/x);
+      prob.volume = 1.0;
+      prob.height = HeightRule(y);
+      
+      std::cout << "centroid " << prob.centroid << std::endl;
+      std::cout << "tangent " << prob.tangent << std::endl;
+      std::cout << "volume " << prob.volume << std::endl;
+      std::cout << "height " << prob.height << std::endl;
 
-      if(CentroidRule(pos) * TangentRule(y/x) * VolumeRule(x*y*z) * HeightRule(y) > prob){
-	prob = CentroidRule(pos) * TangentRule(y/x) * VolumeRule(x*y*z) * HeightRule(y);
-	/** remember size and position */
-	size_max_pc = x * y * z;
-	size_max[X] = x;
-	size_max[Y] = y;
-	size_max[Z] = z;
-	max_pos[X] = pos[X];
-	max_pos[Y] = pos[Y];
-	max_pos[Z] = pos[Z];
-	cluster_max = cloud_cluster_list[i];
+      /** setup info */
+      info.volume = x * y * z;
+      info.centroid.x = pos[X];
+      info.centroid.y = pos[Y];
+      info.centroid.z = pos[Z];
+      
+      if(prob.all > 0){
+	/** set data*/
+	std::cout << "entered store data" << std::endl;
+	cluster.prob.push_back(prob);
+	cluster.info.push_back(info);
+	sensor_msgs::PointCloud2 cluster_cloud;
+	pcl::toROSMsg(cloud_cluster_list[i], cluster_cloud);
+	cluster_cloud.header.frame_id = "realsense_frame";
+	cluster.candidates.push_back(cluster_cloud);
       }
     }
 
-    ROS_INFO("human size : %f, %f, %f", size_max[X], size_max[Y], size_max[Z]);
-    ROS_INFO("human possibility : %f", prob * 100.0);
-    ROS_INFO("position : %f, %f, %f", max_pos[X], max_pos[Y], max_pos[Z]);
-    ROS_INFO("volume : %f", size_max[X] * size_max[Y] * size_max[Z]);
-
-    displayBoundingBox(cluster_max);
-    sensor_msgs::PointCloud2 filter_cloud;
-    pcl::toROSMsg(cluster_max, filter_cloud);
-    filter_cloud.header.frame_id = "realsense_frame";
-    pc_pub.publish(filter_cloud);
+    ROS_INFO("number of candidates are : %d", cluster.candidates.size());
+    displayBoundingBox(cluster);
+    displayCluster(cluster);
+    cluster_pub.publish(cluster);
   }
 
   double VolumeRule(double volume){
@@ -249,46 +262,76 @@ public:
       return 0.0;
   }
 
-  void displayBoundingBox(pcl::PointCloud<pcl::PointXYZRGB> cloud_cluster){
-    visualization_msgs::Marker marker;
-    marker.type = visualization_msgs::Marker::CUBE;
-    marker.action = visualization_msgs::Marker::ADD;
-    pcl::PointXYZRGB min_point, max_point; 
+  void displayCluster(object_recognizer::Cluster cluster){
+    pcl::PointCloud<pcl::PointXYZRGB> cluster_sum;
+    pcl::PointCloud<pcl::PointXYZRGB> cluster_elem;
+    for(size_t i = 0; i < cluster.candidates.size(); i++){
+      pcl::fromROSMsg(cluster.candidates[i], cluster_elem);
+      cluster_sum += cluster_elem;
+    }
+    sensor_msgs::PointCloud2 cluster_cloud;
+    cluster_cloud.header.frame_id = "realsense_frame";
+    pcl::toROSMsg(cluster_sum, cluster_cloud);
+    pc_pub.publish(cluster_cloud);
+  }
 
-    pcl::getMinMax3D(cloud_cluster, min_point, max_point);
-    geometry_msgs::Point pt1;
-    pt1.x = max_point.x;
-    pt1.y = min_point.y;
-    pt1.z = max_point.z;
-    geometry_msgs::Point pt2;
-    pt2.x = min_point.x;
-    pt2.y = min_point.y; 
-    pt2.z = max_point.z; 
-    geometry_msgs::Point pt3;
-    pt3.x = max_point.x; 
-    pt3.y = min_point.y; 
-    pt3.z = min_point.z;
+  void displayBoundingBox(object_recognizer::Cluster cluster){
+    visualization_msgs::MarkerArray marker_array;
 
-    marker.header.frame_id = "realsense_frame";
-    marker.header.stamp = ros::Time::now();
-    marker.ns = "bounding_box";
-    marker.id = 0;
-    marker.color.a = 0.5;
-    marker.color.r = 0.0;
-    marker.color.g = 1.0;
-    marker.color.b = 0.0;
-    marker.scale.x = (max_point.x - min_point.x);
-    marker.scale.y = (max_point.y - min_point.y);
-    marker.scale.z = (max_point.z - min_point.z);
-    //ROS_INFO("scale is %f, %f, %f",marker.scale.x,marker.scale.y,marker.scale.z);
-    marker.pose.position.x = (min_point.x + max_point.x)/2;
-    marker.pose.position.y = (min_point.y + max_point.y)/2;
-    marker.pose.position.z = (min_point.z + max_point.z)/2;
-    marker.pose.orientation.x = 0.0;
-    marker.pose.orientation.y = 0.0;
-    marker.pose.orientation.z = 0.0;
-    marker.pose.orientation.w = 1.0;
-    vis_pub.publish(marker);
+    for(size_t i = 0; i < cluster.candidates.size(); i++){
+      visualization_msgs::Marker marker;
+      marker.type = visualization_msgs::Marker::CUBE;
+      marker.action = visualization_msgs::Marker::ADD;
+      marker.header.frame_id = "realsense_frame";
+      marker.header.stamp = ros::Time();
+
+      pcl::PointXYZRGB min_point, max_point; 
+
+      pcl::PointCloud<pcl::PointXYZRGB> cloud;
+
+      pcl::fromROSMsg(cluster.candidates[i], cloud);
+
+
+      pcl::getMinMax3D(cloud, min_point, max_point);
+      geometry_msgs::Point pt1;
+      pt1.x = max_point.x;
+      pt1.y = min_point.y;
+      pt1.z = max_point.z;
+      geometry_msgs::Point pt2;
+      pt2.x = min_point.x;
+      pt2.y = min_point.y; 
+      pt2.z = max_point.z; 
+      geometry_msgs::Point pt3;
+      pt3.x = max_point.x; 
+      pt3.y = min_point.y; 
+      pt3.z = min_point.z;
+      
+      marker.header.frame_id = "realsense_frame";
+      marker.header.stamp = ros::Time::now();
+      marker.ns = "bounding_box";
+      marker.id = 0;
+
+      marker.color.a = 0.5;
+      marker.color.r = cluster.prob[i].all;
+      marker.color.g = 0.0;
+      marker.color.b = 1.0 - cluster.prob[i].all;
+      marker.scale.x = (max_point.x - min_point.x);
+      marker.scale.y = (max_point.y - min_point.y);
+      marker.scale.z = (max_point.z - min_point.z);
+      marker.pose.position.x = (min_point.x + max_point.x)/2;
+      marker.pose.position.y = (min_point.y + max_point.y)/2;
+      marker.pose.position.z = (min_point.z + max_point.z)/2;
+      marker.pose.orientation.x = 0.0;
+      marker.pose.orientation.y = 0.0;
+      marker.pose.orientation.z = 0.0;
+      marker.pose.orientation.w = 1.0;
+      marker_array.markers.push_back(marker); 
+    }
+    for(size_t i = 0; i < marker_array.markers.size(); i++){
+      marker_array.markers[i].id = i;
+    }
+
+    vis_pub.publish(marker_array);
   }
 
 
