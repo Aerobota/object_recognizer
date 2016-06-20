@@ -1,0 +1,338 @@
+#include "ObjectCluster.h"
+
+#define X 0
+#define Y 1
+#define Z 2
+
+class RGBDNonHumanCluster : virtual private ObjectClusterInterface{
+
+private:
+  ros::Subscriber pc_sub;
+  ros::NodeHandle nh;
+  ros::Publisher pc_pub;
+  ros::Publisher vis_pub;
+  ros::Publisher cluster_pub;
+
+public:
+  explicit RGBDNonHumanCluster(ros::NodeHandle& n):
+    nh(n) {
+    pc_sub = nh.subscribe("/camera/depth/points",1,
+			  &RGBDNonHumanCluster::Clustering, this);
+    cluster_pub = nh.advertise<object_recognizer::Cluster>("/cluster", 1);
+    pc_pub = nh.advertise<sensor_msgs::PointCloud2>("/clustered_cloud2", 1);
+    vis_pub = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker",10);
+    //ROS_INFO("starting clustering.");
+  }
+  
+  void Clustering(const sensor_msgs::PointCloud2::Ptr &input){
+    /** convert sensor_msgs to pcl */
+    sensor_msgs::PointCloud2::Ptr input_cloud = input;
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::fromROSMsg(*input, *cloud);
+
+    /** remove invalid points*/
+    std::vector<int> indices;
+    pcl::removeNaNFromPointCloud(*cloud, *cloud, indices);
+    
+    /** perform downsampling for performance */
+    pcl::VoxelGrid<pcl::PointXYZRGB> sor_down;
+    sor_down.setInputCloud(cloud->makeShared());
+    sor_down.setLeafSize(0.01, 0.01, 0.01);
+    sor_down.filter(*cloud);
+
+    /** remove outliers by statical filtering */
+    pcl::StatisticalOutlierRemoval<pcl::PointXYZRGB> sor_stat;
+    sor_stat.setInputCloud(cloud->makeShared());
+    sor_stat.setMeanK(50);
+    sor_stat.setStddevMulThresh(1.0);
+    sor_stat.setNegative(false);
+    sor_stat.filter(*cloud);
+    
+    //include SAC
+    // Create the segmentation object for the planar model and set all the parameters
+    pcl::SACSegmentation<pcl::PointXYZRGB> seg;
+    pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+    pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_plane (new pcl::PointCloud<pcl::PointXYZRGB> ());
+
+    seg.setOptimizeCoefficients (true);
+    seg.setModelType (pcl::SACMODEL_PLANE);
+    seg.setMethodType (pcl::SAC_RANSAC);
+    seg.setMaxIterations (100);
+    seg.setDistanceThreshold (0.02);
+
+    int i=0, nr_points = (int) cloud->points.size ();
+    while (cloud->points.size () > 0.7 * nr_points)
+      {
+	// Segment the largest planar component from the remaining cloud
+	seg.setInputCloud (cloud);
+	seg.segment (*inliers, *coefficients);
+	if (inliers->indices.size () == 0)
+	  {
+	    std::cout << "Could not estimate a planar model for the given dataset." << std::endl;
+	    break;
+	  }
+	
+	// Extract the planar inliers from the input cloud
+	pcl::ExtractIndices<pcl::PointXYZRGB> extract;
+	extract.setInputCloud (cloud);
+	extract.setIndices (inliers);
+	extract.setNegative (false);
+
+	// Get the points associated with the planar surface
+	extract.filter (*cloud_plane);
+	std::cout << "PointCloud representing the planar component: " << cloud_plane->points.size () << " data points." << std::endl;
+
+	// Remove the planar inliers, extract the rest
+	extract.setNegative (true);
+	extract.filter (*cloud);
+      }
+    // Creating the KdTree object for the search method of the extraction
+    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGB>);
+    tree->setInputCloud (cloud);
+
+    std::vector<pcl::PointIndices> cluster_indices;
+    pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
+    ec.setClusterTolerance (0.02); // 2cm
+    ec.setMinClusterSize (100);
+    ec.setMaxClusterSize (25000);
+    ec.setSearchMethod (tree);
+    ec.setInputCloud (cloud);
+    ec.extract (cluster_indices);
+
+
+    int j = 0;
+    std::vector<pcl::PointCloud<pcl::PointXYZRGB> > cloud_cluster_list;
+
+    for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
+      {
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZRGB>);
+	for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit){
+	  cloud_cluster->points.push_back(cloud->points[*pit]); //*
+	}
+	cloud_cluster->width = cloud_cluster->points.size ();
+	cloud_cluster->height = 1;
+	cloud_cluster->is_dense = true;
+	cloud_cluster_list.push_back(*cloud_cluster);
+
+      }
+    /** position */
+    double pos[3] = {0.0, 0.0, 0.0};
+    double lpos[3] = {0.0, 0.0, 0.0};
+
+    object_recognizer::Cluster cluster;
+    object_recognizer::Prob prob;
+    object_recognizer::Info info;
+
+    for(size_t i = 0; i < cloud_cluster_list.size(); i++){
+
+
+      /** get max/min */
+      pcl::PointXYZRGB min_point, max_point; 
+      pcl::getMinMax3D(cloud_cluster_list[i], min_point, max_point);
+
+      Eigen::Vector4f centroid;
+      compute3DCentroid(cloud_cluster_list[i], centroid);
+      
+      /** get size */
+      double x = (max_point.x - min_point.x);
+      double y = (max_point.y - min_point.y);
+      double z = (max_point.z - min_point.z);
+      std::cout << "x y z" << std::endl;
+      std::cout << x << " " << y << " " << z << std::endl;
+      /** update position */
+      lpos[X] = pos[X];
+      lpos[Y] = pos[Y];
+      lpos[Z] = pos[Z];
+      pos[X] = centroid.x();
+      pos[Y] = centroid.y();
+      pos[Z] = centroid.z();
+      
+      /** setup probability */
+      prob.all = WidthRule(x) * HeightRule(y) * DepthRule(z);
+      prob.centroid = CentroidRule(pos);
+      prob.tangent = TangentRule(y/x);
+      prob.volume = 1.0;
+      prob.height = HeightRule(y);
+      
+      std::cout << "centroid " << prob.centroid << std::endl;
+      std::cout << "tangent " << prob.tangent << std::endl;
+      std::cout << "volume " << prob.volume << std::endl;
+      std::cout << "height " << prob.height << std::endl;
+
+      /** setup info */
+      info.volume = x * y * z;
+      info.centroid.x = pos[X];
+      info.centroid.y = pos[Y];
+      info.centroid.z = pos[Z];
+      
+      if(prob.all > 0.5){
+	/** set data*/
+	std::cout << "entered store data" << std::endl;
+	cluster.prob.push_back(prob);
+	cluster.info.push_back(info);
+	sensor_msgs::PointCloud2 cluster_cloud;
+	pcl::toROSMsg(cloud_cluster_list[i], cluster_cloud);
+	cluster_cloud.header.frame_id = "realsense_frame";
+	cluster.candidates.push_back(cluster_cloud);
+      }
+    }
+
+    ROS_INFO("number of candidates are : %d", cluster.candidates.size());
+    displayBoundingBox(cluster);
+    displayCluster(cluster);
+    cluster_pub.publish(cluster);
+  }
+
+  double VolumeRule(double volume){
+    if(volume > 0.7){
+      if(1.4 - volume < 0)
+	return 0.0;
+    }
+    else if(volume < 0.08)
+      return 0.0;
+  }
+  
+  double WidthRule(double width){
+    if(width >= 0.05 && 0.3 >= width)
+      return 1.0;
+    else if(width < 0.05)
+      return width;
+    else
+      return (1.0 - width);
+  }
+
+  double HeightRule(double height){
+    if(height >= 0.05 && height <= 0.4)
+      return 1.0;
+    else if(height > 0.4)
+      return (1.0 - height);
+    else
+      return  height;
+  }
+
+
+  double DepthRule(double z){
+    if(z >= 0.05 && 0.3 >= z)
+      return 1.0;
+    else if(z < 0.05)
+      return z;
+    else
+      return (1.0 - z);
+  }
+
+  double TangentRule(double tan){
+    if(tan >= 1.5 && 7.0 >= tan){
+      return 1.0;
+    }
+    else if(tan < 1.5)
+      return tan/1.5;
+    else
+      return 0;
+  }
+
+  double KalmanFilter(double lpos[], double pos[]){
+    double prob[3] = {0.0, 0.0, 0.0};
+    
+    double distance[3] = {0.0, 0.0, 0.0};
+
+    distance[X] = abs(pos[X] - lpos[X]);
+    distance[Y] = abs(pos[Y] - lpos[Y]);
+    distance[Z] = abs(pos[Z] - lpos[Z]);
+
+    for(int i = 0; i < 3; i++){
+      if(distance[i] > 0.2)
+	prob[i] = 0.0;
+      else
+	prob[i] = 1.0;
+    }
+
+    return prob[X] * prob[Y] * prob[Z];
+  }
+
+
+
+  double CentroidRule(double centroid[]){
+    if(centroid[Y] > 0)
+      return 1.0;
+    else
+      return 0.0;
+  }
+
+  void displayCluster(object_recognizer::Cluster cluster){
+    pcl::PointCloud<pcl::PointXYZRGB> cluster_sum;
+    pcl::PointCloud<pcl::PointXYZRGB> cluster_elem;
+    for(size_t i = 0; i < cluster.candidates.size(); i++){
+      pcl::fromROSMsg(cluster.candidates[i], cluster_elem);
+      cluster_sum += cluster_elem;
+    }
+    sensor_msgs::PointCloud2 cluster_cloud;
+    cluster_cloud.header.frame_id = "realsense_frame";
+    pcl::toROSMsg(cluster_sum, cluster_cloud);
+    pc_pub.publish(cluster_cloud);
+  }
+
+  void displayBoundingBox(object_recognizer::Cluster cluster){
+    visualization_msgs::MarkerArray marker_array;
+
+    for(size_t i = 0; i < cluster.candidates.size(); i++){
+      visualization_msgs::Marker marker;
+      marker.type = visualization_msgs::Marker::CUBE;
+      marker.action = visualization_msgs::Marker::ADD;
+      marker.header.frame_id = "realsense_frame";
+      marker.header.stamp = ros::Time();
+
+      pcl::PointXYZRGB min_point, max_point; 
+
+      pcl::PointCloud<pcl::PointXYZRGB> cloud;
+
+      pcl::fromROSMsg(cluster.candidates[i], cloud);
+
+
+      pcl::getMinMax3D(cloud, min_point, max_point);
+      geometry_msgs::Point pt1;
+      pt1.x = max_point.x;
+      pt1.y = min_point.y;
+      pt1.z = max_point.z;
+      geometry_msgs::Point pt2;
+      pt2.x = min_point.x;
+      pt2.y = min_point.y; 
+      pt2.z = max_point.z; 
+      geometry_msgs::Point pt3;
+      pt3.x = max_point.x; 
+      pt3.y = min_point.y; 
+      pt3.z = min_point.z;
+      
+      marker.header.frame_id = "realsense_frame";
+      marker.header.stamp = ros::Time::now();
+      marker.ns = "bounding_box";
+      marker.id = 0;
+
+      marker.color.a = 0.5;
+      marker.color.r = cluster.prob[i].all;
+      marker.color.g = 0.0;
+      marker.color.b = 1.0 - cluster.prob[i].all;
+      marker.scale.x = (max_point.x - min_point.x);
+      marker.scale.y = (max_point.y - min_point.y);
+      marker.scale.z = (max_point.z - min_point.z);
+      marker.pose.position.x = (min_point.x + max_point.x)/2;
+      marker.pose.position.y = (min_point.y + max_point.y)/2;
+      marker.pose.position.z = (min_point.z + max_point.z)/2;
+      marker.pose.orientation.x = 0.0;
+      marker.pose.orientation.y = 0.0;
+      marker.pose.orientation.z = 0.0;
+      marker.pose.orientation.w = 1.0;
+      marker_array.markers.push_back(marker); 
+    }
+    for(size_t i = 0; i < marker_array.markers.size(); i++){
+      marker_array.markers[i].id = i;
+    }
+
+    vis_pub.publish(marker_array);
+  }
+
+
+};
+
+
+

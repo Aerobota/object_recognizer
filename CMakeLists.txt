@@ -148,7 +148,7 @@ include_directories(
 #add_definitions(${PCL_DEFENITIONS})
 ## Declare a C++ executable
 add_executable(object_cluster src/object_cluster_node.cpp)
-
+add_executable(nonhuman_cluster src/nonhuman_cluster_node.cpp)
 ## Add cmake target dependencies of the executable
 ## same as for the library above
 # add_dependencies(object_recognizer_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
@@ -157,6 +157,9 @@ add_executable(object_cluster src/object_cluster_node.cpp)
 target_link_libraries(object_cluster
   ${catkin_LIBRARIES}
 #  ${PCL_LIBRARIES}
+)
+target_link_libraries(nonhuman_cluster
+  ${catkin_LIBRARIES}
 )
 
 #############
