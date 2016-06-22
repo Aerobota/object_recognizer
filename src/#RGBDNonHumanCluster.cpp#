@@ -11,7 +11,7 @@ private:
   ros::NodeHandle nh;
   ros::Publisher pc_pub;
   ros::Publisher vis_pub;
-  ros::Publisher cluster_pub;
+  ros::Publisher cluster_pub;  
 
 public:
   explicit RGBDNonHumanCluster(ros::NodeHandle& n):
@@ -21,9 +21,8 @@ public:
     cluster_pub = nh.advertise<object_recognizer::Cluster>("/cluster", 1);
     pc_pub = nh.advertise<sensor_msgs::PointCloud2>("/clustered_cloud2", 1);
     vis_pub = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker",10);
-    //ROS_INFO("starting clustering.");
   }
-  
+
   void Clustering(const sensor_msgs::PointCloud2::Ptr &input){
     /** convert sensor_msgs to pcl */
     sensor_msgs::PointCloud2::Ptr input_cloud = input;
@@ -124,6 +123,8 @@ public:
     object_recognizer::Prob prob;
     object_recognizer::Info info;
 
+    object_recognizer::Object object;
+
     for(size_t i = 0; i < cloud_cluster_list.size(); i++){
 
 
@@ -149,10 +150,10 @@ public:
       pos[Z] = centroid.z();
       
       /** setup probability */
-      prob.all = WidthRule(x) * HeightRule(y) * DepthRule(z);
+      prob.all = WidthRule(x) * HeightRule(y) * DepthRule(z) * VolumeRule(x * y * z);
       prob.centroid = CentroidRule(pos);
       prob.tangent = TangentRule(y/x);
-      prob.volume = 1.0;
+      prob.volume = VolumeRule(x*y*z);
       prob.height = HeightRule(y);
       
       std::cout << "centroid " << prob.centroid << std::endl;
@@ -172,12 +173,14 @@ public:
 	cluster.prob.push_back(prob);
 	cluster.info.push_back(info);
 	sensor_msgs::PointCloud2 cluster_cloud;
+	sensor_msgs::Image image;
+	pcl::toROSMsg(cloud_cluster_list[i], image);
 	pcl::toROSMsg(cloud_cluster_list[i], cluster_cloud);
+	cluster.texture.push_back(image);
 	cluster_cloud.header.frame_id = "realsense_frame";
 	cluster.candidates.push_back(cluster_cloud);
       }
     }
-
     ROS_INFO("number of candidates are : %d", cluster.candidates.size());
     displayBoundingBox(cluster);
     displayCluster(cluster);
@@ -185,11 +188,10 @@ public:
   }
 
   double VolumeRule(double volume){
-    if(volume > 0.7){
-      if(1.4 - volume < 0)
-	return 0.0;
+    if(0.02 >= volume ){
+      return 1.0;
     }
-    else if(volume < 0.08)
+    else 
       return 0.0;
   }
   
@@ -198,6 +200,8 @@ public:
       return 1.0;
     else if(width < 0.05)
       return width;
+    else if(1.0 - width < 0)
+      return 0.0;
     else
       return (1.0 - width);
   }
@@ -206,17 +210,22 @@ public:
     if(height >= 0.05 && height <= 0.4)
       return 1.0;
     else if(height > 0.4)
-      return (1.0 - height);
+      if(1.0 - height < 0)
+	return 0.0;
+      else
+	return 1.0 - height;
     else
       return  height;
   }
 
 
   double DepthRule(double z){
-    if(z >= 0.05 && 0.3 >= z)
+    if(z >= 0.05 && 0.5 >= z)
       return 1.0;
     else if(z < 0.05)
       return z;
+    else if (1.0 - z < 0)
+      return 0;
     else
       return (1.0 - z);
   }

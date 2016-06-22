@@ -22,11 +22,18 @@
 #include <pcl/segmentation/extract_clusters.h>
 //include others
 #include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/search/kdtree.h>
+#include <pcl/search/organized.h>
+#include <pcl/features/normal_3d_omp.h>
+#include <pcl/filters/conditional_removal.h>
+#include <pcl/features/don.h>
 #include <pcl/surface/mls.h>
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/console/parse.h>
 #include <pcl/common/transforms.h>
 #include <pcl/common/centroid.h>
+#include <pcl/io/pcd_io.h>
+
 #include <vector> 
 #include <cmath>
 #include "ObjectClusterInterface.h"
@@ -37,5 +44,13 @@
 #include <object_recognizer/Prob.h>
 #include <object_recognizer/Info.h>
 #include <object_recognizer/Cluster.h>
+#include <object_recognizer/Object.h>
 
+#include <image_geometry/pinhole_camera_model.h>
+#include <tf/transform_listener.h>
+#include <sensor_msgs/image_encodings.h>
+#include <image_transport/image_transport.h>
+#include <cv_bridge/cv_bridge.h>
+#include <boost/foreach.hpp>
+#include <pcl/io/pcd_io.h>
 #endif // OBJECTCLUSTER_H

@@ -1,0 +1,12 @@
+#!/usr/bin/env python
+
+import rospy
+from object_recognizer.msg import Object
+import cv2
+from sensor_msgs.msg import Image
+
+class TextureTest:
+def __init__():
+
+if __name__ == "__main__":
+pass    

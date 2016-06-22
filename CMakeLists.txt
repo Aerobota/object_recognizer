@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(object_recognizer)
 
-set(CMAKE_BUILD_TYPE Debug)
+#set(CMAKE_BUILD_TYPE Debug)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
@@ -13,6 +13,8 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   cv_bridge
   image_transport
+  tf
+  image_geometry
   roscpp
   rospy
   message_generation
@@ -149,6 +151,7 @@ include_directories(
 ## Declare a C++ executable
 add_executable(object_cluster src/object_cluster_node.cpp)
 add_executable(nonhuman_cluster src/nonhuman_cluster_node.cpp)
+add_executable(book_cluster src/book_cluster_node.cpp)
 ## Add cmake target dependencies of the executable
 ## same as for the library above
 # add_dependencies(object_recognizer_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
@@ -159,6 +162,9 @@ target_link_libraries(object_cluster
 #  ${PCL_LIBRARIES}
 )
 target_link_libraries(nonhuman_cluster
+  ${catkin_LIBRARIES}
+)
+target_link_libraries(book_cluster
   ${catkin_LIBRARIES}
 )
 

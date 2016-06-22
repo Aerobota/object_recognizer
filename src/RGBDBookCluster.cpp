@@ -4,7 +4,7 @@
 #define Y 1
 #define Z 2
 
-class RGBDNonHumanCluster : virtual private ObjectClusterInterface{
+class RGBDBookCluster : virtual private ObjectClusterInterface{
 
 private:
   ros::Subscriber pc_sub;
@@ -14,10 +14,10 @@ private:
   ros::Publisher cluster_pub;  
 
 public:
-  explicit RGBDNonHumanCluster(ros::NodeHandle& n):
+  explicit RGBDBookCluster(ros::NodeHandle& n):
     nh(n) {
     pc_sub = nh.subscribe("/camera/depth/points",1,
-			  &RGBDNonHumanCluster::Clustering, this);
+			  &RGBDBookCluster::Clustering, this);
     cluster_pub = nh.advertise<object_recognizer::Cluster>("/cluster", 1);
     pc_pub = nh.advertise<sensor_msgs::PointCloud2>("/clustered_cloud2", 1);
     vis_pub = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker",10);
@@ -25,7 +25,6 @@ public:
 
   void Clustering(const sensor_msgs::PointCloud2::Ptr &input){
     /** convert sensor_msgs to pcl */
-    sensor_msgs::PointCloud2::Ptr input_cloud = input;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::fromROSMsg(*input, *cloud);
 
@@ -46,102 +45,198 @@ public:
     sor_stat.setStddevMulThresh(1.0);
     sor_stat.setNegative(false);
     sor_stat.filter(*cloud);
-    
-    //include SAC
-    // Create the segmentation object for the planar model and set all the parameters
-    pcl::SACSegmentation<pcl::PointXYZRGB> seg;
-    pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
-    pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_plane (new pcl::PointCloud<pcl::PointXYZRGB> ());
 
-    seg.setOptimizeCoefficients (true);
-    seg.setModelType (pcl::SACMODEL_PLANE);
-    seg.setMethodType (pcl::SAC_RANSAC);
-    seg.setMaxIterations (100);
-    seg.setDistanceThreshold (0.02);
 
-    int i=0, nr_points = (int) cloud->points.size ();
-    while (cloud->points.size () > 0.7 * nr_points)
+    double scale_min = 0.02;
+    double scale_max = 1.00;
+    double threshold = 0.6;
+    double segradius = 0.02;
+
+    pcl::search::Search<pcl::PointXYZRGB>::Ptr tree;
+    if (cloud->isOrganized ())
       {
-	// Segment the largest planar component from the remaining cloud
-	seg.setInputCloud (cloud);
-	seg.segment (*inliers, *coefficients);
-	if (inliers->indices.size () == 0)
-	  {
-	    std::cout << "Could not estimate a planar model for the given dataset." << std::endl;
-	    break;
-	  }
-	
-	// Extract the planar inliers from the input cloud
-	pcl::ExtractIndices<pcl::PointXYZRGB> extract;
-	extract.setInputCloud (cloud);
-	extract.setIndices (inliers);
-	extract.setNegative (false);
-
-	// Get the points associated with the planar surface
-	extract.filter (*cloud_plane);
-	std::cout << "PointCloud representing the planar component: " << cloud_plane->points.size () << " data points." << std::endl;
-
-	// Remove the planar inliers, extract the rest
-	extract.setNegative (true);
-	extract.filter (*cloud);
+	tree.reset (new pcl::search::OrganizedNeighbor<pcl::PointXYZRGB> ());
       }
-    // Creating the KdTree object for the search method of the extraction
-    pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZRGB>);
-    tree->setInputCloud (cloud);
+    else
+      {
+	tree.reset (new pcl::search::KdTree<pcl::PointXYZRGB> (false));
+      }
+
+    tree->setInputCloud(cloud);
+
+    if(scale_min >= scale_max){
+      ROS_ERROR("large scale must be > small scale!");
+      exit(-1);
+    }
+
+    pcl::NormalEstimationOMP<pcl::PointXYZRGB, pcl::PointNormal> ne;
+    ne.setInputCloud(cloud);
+    ne.setSearchMethod(tree);
+
+    ne.setViewPoint (std::numeric_limits<float>::max (), std::numeric_limits<float>::max (), std::numeric_limits<float>::max ());
+
+    std::cout << "Calculating normals for scale..." << scale_min << std::endl;
+    pcl::PointCloud<pcl::PointNormal>::Ptr normals_small_scale (new pcl::PointCloud<pcl::PointNormal>);
+
+    ne.setRadiusSearch (scale_min);
+    ne.compute (*normals_small_scale);
+
+    // calculate normals with the large scale
+    std::cout << "Calculating normals for scale..." << scale_max << std::endl;
+    pcl::PointCloud<pcl::PointNormal>::Ptr normals_large_scale (new pcl::PointCloud<pcl::PointNormal>);
+
+    ne.setRadiusSearch (scale_max);
+    ne.compute (*normals_large_scale);
+
+
+    pcl::PointCloud<pcl::PointNormal>::Ptr 
+      doncloud(new pcl::PointCloud<pcl::PointNormal>);
+    
+    pcl::copyPointCloud<pcl::PointXYZRGB, pcl::PointNormal>
+      (*cloud, *doncloud);
+    
+    std::cout << "calculating DoN." << std::endl;
+    pcl::DifferenceOfNormalsEstimation
+      <pcl::PointXYZRGB,pcl::PointNormal,pcl::PointNormal> don;
+
+    don.setInputCloud(cloud);
+    don.setNormalScaleLarge(normals_large_scale);
+    don.setNormalScaleSmall(normals_small_scale);
+
+    if(!don.initCompute()){
+      ROS_ERROR("Could not initialize DoN Features.");
+      exit(0);
+    }
+    
+    don.computeFeature(*doncloud);
+    
+    pcl::ConditionOr<pcl::PointNormal>::Ptr range_cond
+      (new pcl::ConditionOr<pcl::PointNormal> ()
+       );
+    range_cond->addComparison(
+			      pcl::FieldComparison
+			      <pcl::PointNormal>::ConstPtr(
+							   new pcl::FieldComparison<pcl::PointNormal>("curvature", pcl::ComparisonOps::GT, threshold)
+							   )
+			      );
+    pcl::ConditionalRemoval<pcl::PointNormal> condrem(range_cond);
+    condrem.setInputCloud(doncloud);
+    pcl::PointCloud<pcl::PointNormal>::Ptr doncloud_filtered
+      (new pcl::PointCloud<pcl::PointNormal>);
+    condrem.filter(*doncloud_filtered);
+    doncloud = doncloud_filtered;
+    
+    std::cout << "Filtered Pointcloud: " << doncloud->points.size() <<
+      " data points." << std::endl;
+
+    pcl::search::KdTree<pcl::PointNormal>::Ptr 
+      segtree(new pcl::search::KdTree<pcl::PointNormal>);
+    segtree->setInputCloud(doncloud);
 
     std::vector<pcl::PointIndices> cluster_indices;
-    pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
-    ec.setClusterTolerance (0.02); // 2cm
-    ec.setMinClusterSize (100);
-    ec.setMaxClusterSize (25000);
-    ec.setSearchMethod (tree);
-    ec.setInputCloud (cloud);
-    ec.extract (cluster_indices);
-
-
-    int j = 0;
-    std::vector<pcl::PointCloud<pcl::PointXYZRGB> > cloud_cluster_list;
-
-    for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin (); it != cluster_indices.end (); ++it)
-      {
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_cluster (new pcl::PointCloud<pcl::PointXYZRGB>);
-	for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit){
-	  cloud_cluster->points.push_back(cloud->points[*pit]); //*
-	}
-	cloud_cluster->width = cloud_cluster->points.size ();
-	cloud_cluster->height = 1;
-	cloud_cluster->is_dense = true;
-	cloud_cluster_list.push_back(*cloud_cluster);
-
-      }
-    /** position */
-    double pos[3] = {0.0, 0.0, 0.0};
-    double lpos[3] = {0.0, 0.0, 0.0};
+    pcl::EuclideanClusterExtraction<pcl::PointNormal> ec;
+    
+    ec.setClusterTolerance(0.02);
+    ec.setMinClusterSize(50);
+    ec.setMaxClusterSize(100000);
+    ec.setSearchMethod(segtree);
+    ec.setInputCloud(doncloud);
+    ec.extract(cluster_indices);
 
     object_recognizer::Cluster cluster;
-    object_recognizer::Prob prob;
-    object_recognizer::Info info;
 
-    object_recognizer::Object object;
+    int j = 0;
+    for(std::vector<pcl::PointIndices>::const_iterator it =
+	  cluster_indices.begin(); it != cluster_indices.end(); ++it, j++){
+      pcl::PointCloud<pcl::PointNormal>::Ptr cloud_cluster_don
+	(new pcl::PointCloud<pcl::PointNormal>);
+      for(std::vector<int>::const_iterator pit = it->indices.begin();
+	  pit != it->indices.end(); ++pit){
+	cloud_cluster_don->points.push_back(doncloud->points[*pit]);
+      }
+      cloud_cluster_don->width = int(cloud_cluster_don->points.size());
+      cloud_cluster_don->height = 1;
+      cloud_cluster_don->is_dense = true;
+      /** position */
+      double pos[3] = {0.0, 0.0, 0.0};
+      double lpos[3] = {0.0, 0.0, 0.0};
+      
+      object_recognizer::Prob prob;
+      object_recognizer::Info info;
+      object_recognizer::Object object;
+      
+      /** convert pointnormal from XYZRGB */
+      pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_cluster_rgbd
+	(new pcl::PointCloud<pcl::PointXYZRGB>);
+      cloud_cluster_rgbd->resize(cloud_cluster_don->size());
+      for(size_t i = 0; i < cloud_cluster_don->points.size(); ++i){
+	const pcl::PointNormal &rgbd_pt = cloud_cluster_don->points[i];
+	uint32_t rgb = *reinterpret_cast<int*>(&cloud->points[i].rgb);
+	uint8_t r = (rgb >> 16) & 0x0000ff;
+	uint8_t g = (rgb >> 8)  & 0x0000ff;
+	uint8_t b = (rgb)       & 0x0000ff;
 
-    for(size_t i = 0; i < cloud_cluster_list.size(); i++){
+	pcl::PointXYZRGB pt(r, g, b);
+	pt.x = rgbd_pt.x;
+	pt.y = rgbd_pt.y;
+	pt.z = rgbd_pt.z;
+	cloud_cluster_rgbd->push_back(pt);
+      }
+      pcl::PointXYZRGB min_point, max_point;
+      pcl::getMinMax3D(*cloud_cluster_rgbd, min_point, max_point);
+      Eigen::Vector4f centroid;
+      compute3DCentroid(*cloud_cluster_rgbd, centroid);
+      double x = (max_point.x - min_point.x);
+      double y = (max_point.y - min_point.y);
+      double z = (max_point.z - min_point.z);
+      pos[X] = centroid.x();
+      pos[Y] = centroid.y();
+      pos[Z] = centroid.z();
+      
+      prob.all = AreaRule(x * y);
+      prob.all = 1;
+      prob.centroid = CentroidRule(pos);
+      prob.tangent = TangentRule(y/x);
+      prob.volume = VolumeRule(x*y*z);
+      prob.height = HeightRule(y);
+      
+      info.volume = x * y * z;
+      info.centroid.x = pos[X];
+      info.centroid.y = pos[Y];
+      info.centroid.z = pos[Z];
+           
+      sensor_msgs::PointCloud2 cluster_cloud;
+      sensor_msgs::Image image;
+      pcl::toROSMsg(*cloud_cluster_rgbd, image);
+      pcl::toROSMsg(*cloud_cluster_rgbd, cluster_cloud);
+
+      cluster_cloud.is_dense = true;
+      cluster_cloud.header.frame_id = "realsense_frame";
+      
+      cluster.texture.push_back(image);
+      cluster.candidates.push_back(cluster_cloud);
+      cluster.prob.push_back(prob);
+      cluster.info.push_back(info);
+    }
 
 
-      /** get max/min */
+
+
+    
+
+    /*
+    for(size_t i = 0; i < cloud_cluster_list.size(); i++){      
       pcl::PointXYZRGB min_point, max_point; 
       pcl::getMinMax3D(cloud_cluster_list[i], min_point, max_point);
-
+      
       Eigen::Vector4f centroid;
       compute3DCentroid(cloud_cluster_list[i], centroid);
       
-      /** get size */
       double x = (max_point.x - min_point.x);
       double y = (max_point.y - min_point.y);
       double z = (max_point.z - min_point.z);
       std::cout << "x y z" << std::endl;
       std::cout << x << " " << y << " " << z << std::endl;
-      /** update position */
       lpos[X] = pos[X];
       lpos[Y] = pos[Y];
       lpos[Z] = pos[Z];
@@ -149,8 +244,8 @@ public:
       pos[Y] = centroid.y();
       pos[Z] = centroid.z();
       
-      /** setup probability */
-      prob.all = WidthRule(x) * HeightRule(y) * DepthRule(z) * VolumeRule(x * y * z);
+      prob.all = AreaRule(x * y);
+      prob.all = 1;
       prob.centroid = CentroidRule(pos);
       prob.tangent = TangentRule(y/x);
       prob.volume = VolumeRule(x*y*z);
@@ -160,16 +255,15 @@ public:
       std::cout << "tangent " << prob.tangent << std::endl;
       std::cout << "volume " << prob.volume << std::endl;
       std::cout << "height " << prob.height << std::endl;
-
-      /** setup info */
+      
       info.volume = x * y * z;
       info.centroid.x = pos[X];
       info.centroid.y = pos[Y];
       info.centroid.z = pos[Z];
       
-      if(prob.all > 0.5){
-	/** set data*/
+      if(prob.all > 0.0){
 	std::cout << "entered store data" << std::endl;
+	std::cout << "x, y, z :" <<  x << y << z << std::endl;
 	cluster.prob.push_back(prob);
 	cluster.info.push_back(info);
 	sensor_msgs::PointCloud2 cluster_cloud;
@@ -177,26 +271,37 @@ public:
 	pcl::toROSMsg(cloud_cluster_list[i], image);
 	pcl::toROSMsg(cloud_cluster_list[i], cluster_cloud);
 	cluster.texture.push_back(image);
+	cluster_cloud.is_dense = true;
 	cluster_cloud.header.frame_id = "realsense_frame";
 	cluster.candidates.push_back(cluster_cloud);
       }
     }
+  */
     ROS_INFO("number of candidates are : %d", cluster.candidates.size());
     displayBoundingBox(cluster);
     displayCluster(cluster);
     cluster_pub.publish(cluster);
   }
-
+  
   double VolumeRule(double volume){
-    if(0.02 >= volume ){
+    if(0.01 >= volume ){
       return 1.0;
     }
     else 
       return 0.0;
   }
+
+  double AreaRule(double area){
+    if(0.001 <=area && area <= 0.10){
+      return 1.0;
+    }
+    else
+      return 0;
+  }
+
   
   double WidthRule(double width){
-    if(width >= 0.05 && 0.3 >= width)
+    if(width >= 0.05 && 0.4 >= width)
       return 1.0;
     else if(width < 0.05)
       return width;
@@ -224,10 +329,10 @@ public:
       return 1.0;
     else if(z < 0.05)
       return z;
-    else if (1.0 - z < 0)
+    else if (0.5 - z < 0)
       return 0;
     else
-      return (1.0 - z);
+      return (0.5 - z);
   }
 
   double TangentRule(double tan){
@@ -236,6 +341,13 @@ public:
     }
     else if(tan < 1.5)
       return tan/1.5;
+    else
+      return 0;
+  }
+
+  double ZTangentRule(double tan){
+    if(tan <= 1.0)
+      return 1;
     else
       return 0;
   }
@@ -262,7 +374,7 @@ public:
 
 
   double CentroidRule(double centroid[]){
-    if(centroid[Y] > 0)
+    if(centroid[Z] < 1.5)
       return 1.0;
     else
       return 0.0;
@@ -276,8 +388,8 @@ public:
       cluster_sum += cluster_elem;
     }
     sensor_msgs::PointCloud2 cluster_cloud;
-    cluster_cloud.header.frame_id = "realsense_frame";
     pcl::toROSMsg(cluster_sum, cluster_cloud);
+    cluster_cloud.header.frame_id = "realsense_frame";
     pc_pub.publish(cluster_cloud);
   }
 
