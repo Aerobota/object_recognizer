@@ -53,4 +53,16 @@
 #include <cv_bridge/cv_bridge.h>
 #include <boost/foreach.hpp>
 #include <pcl/io/pcd_io.h>
+#include <pcl/visualization/common/float_image_utils.h>
+#include <pcl/range_image/range_image.h>
+#include <typeinfo>
+
+#ifndef INFINITY
+#define INFINITY HUGE_VAL
+#endif
+
+#ifndef NAN
+#define NAN 0xffc00000
+#endif
+
 #endif // OBJECTCLUSTER_H

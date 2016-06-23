@@ -109,7 +109,7 @@ public:
 	for (std::vector<int>::const_iterator pit = it->indices.begin (); pit != it->indices.end (); ++pit){
 	  cloud_cluster->points.push_back(cloud->points[*pit]); //*
 	}
-	cloud_cluster->width = cloud_cluster->points.size ();
+	cloud_cluster->width = cloud_cluster->points.size();
 	cloud_cluster->height = 1;
 	cloud_cluster->is_dense = true;
 	cloud_cluster_list.push_back(*cloud_cluster);
@@ -176,7 +176,6 @@ public:
 	sensor_msgs::Image image;
 	pcl::toROSMsg(cloud_cluster_list[i], image);
 	pcl::toROSMsg(cloud_cluster_list[i], cluster_cloud);
-	cluster.texture.push_back(image);
 	cluster_cloud.header.frame_id = "realsense_frame";
 	cluster.candidates.push_back(cluster_cloud);
       }
