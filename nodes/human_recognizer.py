@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import tf
+import math
 import rospy
 import numpy as np
 from object_recognizer.msg import Cluster, Prob, Info, Person
@@ -66,17 +68,25 @@ class HumanDetector:
                     marker = Marker()
                     marker.header.frame_id = "realsense_frame"
                     marker.action = marker.ADD
-                    marker.type = marker.SPHERE
+                    marker.type = marker.MESH_RESOURCE
+                    marker.mesh_resource = "package://object_recognizer/meshes/lovelive/Kousaka_Honoka.dae"
+                    marker.mesh_use_embedded_materials = True
                     marker.color.a = 1.0
-                    marker.color.r = 0.0
+                    marker.color.r = 1.0
                     marker.color.g = 1.0
                     marker.color.b = 1.0
-                    marker.scale.x = 0.5
-                    marker.scale.y = 0.5
-                    marker.scale.z = 0.5
+                    marker.scale.x = 0.08
+                    marker.scale.y = 0.08
+                    marker.scale.z = 0.08
                     marker.pose.position.x = centroids[i][0][0]
-                    marker.pose.position.y = centroids[i][0][1]
+                    marker.pose.position.y = centroids[i][0][1] + 0.8
                     marker.pose.position.z = centroids[i][0][2]
+                    q = tf.transformations.quaternion_from_euler(math.pi, 0, 0)
+                    marker.pose.orientation.x = q[0]
+                    marker.pose.orientation.y = q[1]
+                    marker.pose.orientation.z = q[2]
+                    marker.pose.orientation.w = q[3]
+
                     markerArray.markers.append(marker)
                     centroid = Vector3()
                     centroid.x = centroids[i][0][0]
