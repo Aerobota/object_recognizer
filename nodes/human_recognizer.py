@@ -2,16 +2,16 @@
 
 import rospy
 import numpy as np
-from object_recognizer.msg import Cluster, Prob, Info
+from object_recognizer.msg import Cluster, Prob, Info, Person
 import scipy.cluster.hierarchy as hcluster
-from visualization_msgs.msg import Marker
+from visualization_msgs.msg import MarkerArray, Marker
 from geometry_msgs.msg import Vector3
 
 class HumanDetector:
     def __init__(self):
         self.cluster_sub = rospy.Subscriber("/cluster", Cluster, self.callback)
-        self.marker_pub = rospy.Publisher("/location_marker", Marker)
-        self.pos_pub = rospy.Publisher("/human_location", Vector3)
+        self.marker_pub = rospy.Publisher("/location_markers", MarkerArray)
+        self.pos_pub = rospy.Publisher("/human_location", Person)
         self.pos  = Vector3()
 
 
@@ -23,7 +23,7 @@ class HumanDetector:
              info.centroid.z]
         ), cluster.info)
         human_prob = map(lambda prob : prob.all, cluster.prob) 
-        thresh = 1.0
+        thresh = 0.4
         if len(cluster.candidates) > 0:
             try:
                 clusters = hcluster.fclusterdata(human_cluster,
@@ -38,56 +38,77 @@ class HumanDetector:
                 
             cluster_point = np.asarray([0.0 for i in range(len(cluster.candidates))])
 
+            candidate_cluster = []
+
             for i in range(len(clusters)):
-                if human_prob[i] > 0.85:
-                    cluster_point[clusters[i]-1] += float(len(clusters))
                 if human_prob[i] > 0.85:
                     cluster_point[clusters[i]-1] += human_prob[i]
+                    candidate_cluster.append(clusters[i])
 
-            centroid  = np.zeros((1,3))
-            num = 0
-    
-            for i in range(len(clusters)):
-                if clusters[i]-1 == np.argmax(cluster_point):
-                    centroid += human_cluster[i]
-                    num += 1
-                if human_prob[i] > 0.5:
-                    print human_prob[i]
+            
+            centroids = [np.zeros((1,3)) for i in range(len(candidate_cluster))]
+            nums = [0 for i in range(len(candidate_cluster))]
 
+            for i in range(len(candidate_cluster)):
+                for j in range(len(clusters)):
+                    if clusters[j] == candidate_cluster[i]:
+                        centroids[i] += human_cluster[j]
+                        nums[i] += 1
 
-            if num > 0:
-                centroid =  centroid / num
-                marker = Marker()
-                marker.header.frame_id = "realsense_frame"
-                marker.action = marker.ADD
-                marker.type = marker.SPHERE
-                marker.color.a = 1.0
-                marker.color.r = 0.0
-                marker.color.g = 1.0
-                marker.color.b = 1.0
-                marker.scale.x = 0.5
-                marker.scale.y = 0.5
-                marker.scale.z = 0.5
-                marker.pose.position.x = centroid[0][0]
-                marker.pose.position.y = centroid[0][1]
-                marker.pose.position.z = centroid[0][2]
-                self.marker_pub.publish(marker)
-                self.pos.x = centroid[0][0]
-                self.pos.y = centroid[0][1]
-                self.pos.z = centroid[0][2]
-                self.pos_pub.publish(self.pos)
+                        
+            if len(nums) > 0:
+                rospy.loginfo("human candidates : %d", len(nums))
+                centroids = [centroids[i]/nums[i] for i in range(len(candidate_cluster))]
+                markerArray = MarkerArray()
+                people      = Person()
+
+                for i in range(len(centroids)):
+                    marker = Marker()
+                    marker.header.frame_id = "realsense_frame"
+                    marker.action = marker.ADD
+                    marker.type = marker.SPHERE
+                    marker.color.a = 1.0
+                    marker.color.r = 0.0
+                    marker.color.g = 1.0
+                    marker.color.b = 1.0
+                    marker.scale.x = 0.5
+                    marker.scale.y = 0.5
+                    marker.scale.z = 0.5
+                    marker.pose.position.x = centroids[i][0][0]
+                    marker.pose.position.y = centroids[i][0][1]
+                    marker.pose.position.z = centroids[i][0][2]
+                    markerArray.markers.append(marker)
+                    centroid = Vector3()
+                    centroid.x = centroids[i][0][0]
+                    centroid.y = centroids[i][0][1]
+                    centroid.z = centroids[i][0][2]
+                    people.centroids.append(centroid)
+                
+                for i in range(len(markerArray.markers)):
+                    markerArray.markers[i].id = i
+                    markerArray.markers[i].lifetime = rospy.Duration(1.0)
+
+                self.marker_pub.publish(markerArray)
+                self.pos_pub.publish(people)
 
             else:
                 rospy.loginfo("no cluster found")
-                self.pos.z = 0.0
-                self.pos_pub.publish(self.pos)
+                people      = Person()
+                centroid    = Vector3()
+                centroid.x  = 0.0
+                centroid.y  = 0.0
+                centroid.z  = 0.0
+                people.centroids.append(centroid)
+                self.pos_pub.publish(people)
 
         else:
-            self.pos.x = 0.0
-            self.pos.y = 0.0
-            self.pos.z = 0.0
-            self.pos_pub.publish(self.pos)
-        
+            people      = Person()
+            centroid    = Vector3()
+            centroid.x  = 0.0
+            centroid.y  = 0.0
+            centroid.z  = 0.0
+            people.centroids.append(centroid)
+            self.pos_pub.publish(people)
 
 if __name__ == "__main__":
     rospy.init_node("human_detector",anonymous=True)

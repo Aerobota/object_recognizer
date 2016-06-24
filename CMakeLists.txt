@@ -60,6 +60,7 @@ add_message_files(
   Cluster.msg
   Info.msg
   Prob.msg
+  Person.msg
 )
 
 ## Generate services in the 'srv' folder
