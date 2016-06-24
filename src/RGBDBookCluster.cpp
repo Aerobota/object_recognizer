@@ -12,11 +12,11 @@ private:
   ros::Publisher pc_pub;
   ros::Publisher vis_pub;
   ros::Publisher cluster_pub;  
-  ros::Publisher image_pub;
-  ros::Subscriber img_sub;
-  mutable cv_bridge::CvImagePtr bridge;
-  cv_bridge::CvImagePtr out_bridge;
-  cv::Rect* roi;
+  //ros::Publisher image_pub;
+  //ros::Subscriber img_sub;
+  //mutable cv_bridge::CvImagePtr bridge;
+  //cv_bridge::CvImagePtr out_bridge;
+  //cv::Rect* roi;
   object_recognizer::Cluster cluster;
   int img_x;
   int img_y;
@@ -33,19 +33,6 @@ public:
     cluster_pub = nh.advertise<object_recognizer::Cluster>("/cluster", 1);
     pc_pub = nh.advertise<sensor_msgs::PointCloud2>("/clustered_cloud2", 1);
     vis_pub = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker",10);
-    image_pub = nh.advertise<sensor_msgs::Image>("book_texture", 1);
-    img_sub = nh.subscribe("/camera/color/image_raw",5,
-			   &RGBDBookCluster::imageCb, this);
-  }
-
-  void imageCb(const sensor_msgs::ImageConstPtr &msg){
-    try{
-      bridge = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-    }catch(cv_bridge::Exception& e){
-      ROS_ERROR("cv_bridge exception : %s", e.what());
-      exit(-1);
-    }
-    usleep(1000*1100);
   }
 
   void Clustering(const sensor_msgs::PointCloud2::Ptr &input){
@@ -247,9 +234,8 @@ public:
       int img_w = int(x/cl_w * 640);
       int img_h = int(y/cl_h * 480);
 
-      roi = new cv::Rect(img_x, img_y, img_w, img_h);
+      //roi = new cv::Rect(img_x, img_y, img_w, img_h);
 
-      //pcl::toROSMsg(*cloud_cluster_rgbd, image);
       pcl::toROSMsg(*cloud_cluster_rgbd, cluster_cloud);
       cluster_cloud.is_dense = true;
       cluster_cloud.header.frame_id = "realsense_frame";
@@ -264,21 +250,10 @@ public:
       cluster.info.push_back(info);
     }
 
-    cv::Mat new_img = bridge->image;
-    cv::Mat new_img2;
-    if(new_img.cols > 0 && new_img.rows > 0 && 0 < img_x && 0 < img_y && 0 < img_w && 0 < img_h && new_img.cols >= img_w + img_x && new_img.rows >= img_y + img_h){
-      new_img2 = new_img(*roi);
-      std::cout << "roi " << *roi << std::endl;
-    }
-
-    bridge->image = new_img2;
-
     ROS_INFO("number of candidates are : %d", cluster.candidates.size());
     displayBoundingBox(cluster);
     displayCluster(cluster);
     cluster_pub.publish(cluster);
-    sensor_msgs::Image* img_msg_fin = bridge->toImageMsg().get();
-    image_pub.publish(*img_msg_fin);
   }
   
   double VolumeRule(double volume){
