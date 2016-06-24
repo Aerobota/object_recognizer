@@ -44,7 +44,6 @@
 #include <object_recognizer/Prob.h>
 #include <object_recognizer/Info.h>
 #include <object_recognizer/Cluster.h>
-#include <object_recognizer/Object.h>
 
 #include <image_geometry/pinhole_camera_model.h>
 #include <tf/transform_listener.h>
