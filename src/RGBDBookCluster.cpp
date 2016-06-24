@@ -173,7 +173,6 @@ public:
       
       object_recognizer::Prob prob;
       object_recognizer::Info info;
-      object_recognizer::Object object;
       
       /** convert pointnormal from XYZRGB */
       pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_cluster_rgbd

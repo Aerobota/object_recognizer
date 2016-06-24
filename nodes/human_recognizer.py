@@ -12,6 +12,8 @@ class HumanDetector:
         self.cluster_sub = rospy.Subscriber("/cluster", Cluster, self.callback)
         self.marker_pub = rospy.Publisher("/location_marker", Marker)
         self.pos_pub = rospy.Publisher("/human_location", Vector3)
+        self.pos  = Vector3()
+
 
     def callback(self, cluster):
         human_cluster = np.zeros((len(cluster.candidates),3))
@@ -59,15 +61,15 @@ class HumanDetector:
             marker.pose.position.y = centroid[0][1]
             marker.pose.position.z = centroid[0][2]
             self.marker_pub.publish(marker)
-            pos = Vector3()
-            pos.x = centroid[0][0]
-            pos.y = centroid[0][1]
-            pos.z = centroid[0][2]
+            self.pos.x = centroid[0][0]
+            self.pos.y = centroid[0][1]
+            self.pos.z = centroid[0][2]
             self.pos_pub.publish(pos)
 
         else:
-            print "no cluster found"
-
+            rospy.loginfo("no cluster found")
+            self.pos.z = 0.0
+            self.pos_pub.publish(pos)
         
 
 if __name__ == "__main__":
