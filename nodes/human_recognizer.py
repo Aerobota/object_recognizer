@@ -15,7 +15,7 @@ class HumanDetector:
         self.marker_pub = rospy.Publisher("/location_markers", MarkerArray)
         self.pos_pub = rospy.Publisher("/human_location", Person)
         self.pos  = Vector3()
-
+        self.name = ["Kousaka_Honoka", "Yazawa_Niko", "Nishino_Maki", "Ayase_Eri","Minami_Kotori",  "Sonoda_Umi", "Toujo_Nozomi", "Hoshizora_Rin", "Koizumi_hanayo"]
 
     def callback(self, cluster):
         human_cluster = np.zeros((len(cluster.candidates),3))
@@ -69,7 +69,7 @@ class HumanDetector:
                     marker.header.frame_id = "realsense_frame"
                     marker.action = marker.ADD
                     marker.type = marker.MESH_RESOURCE
-                    marker.mesh_resource = "package://object_recognizer/meshes/lovelive/Kousaka_Honoka.dae"
+                    marker.mesh_resource = "package://object_recognizer/meshes/lovelive/"+self.name[i]+".dae"
                     marker.mesh_use_embedded_materials = True
                     marker.color.a = 1.0
                     marker.color.r = 1.0
