@@ -17,9 +17,13 @@ class HumanFilter:
         self.last_human = Person()
         self.name = ["Kousaka_Honoka", "Yazawa_Niko", "Nishino_Maki","Ayase_Eri","Minami_Kotori","Sonoda_Umi","Toujo_Nozomi","Hoshizora_Rin","Koizumi_hanayo"]
 
+        self.degenerate = 0
+
     def FilterHuman(self, data):
         self.human_number = len(data.centroids)
         human_number_output = 0
+        print "degenerate :", self.degenerate
+
         if self.isFirst:
             self.last_human_number = self.human_number
             self.last_human = data
@@ -60,11 +64,24 @@ class HumanFilter:
 
 
         elif self.human_number > self.last_human_number:
+            self.degenerate = 0
+            data.behind_crowd = 0
+
             human_number_output = self.last_human_number
             self.last_human_number = self.human_number
             self.last_human = data
 
-        else:
+        else: 
+
+            if self.human_number < self.last_human_number:
+                self.degenerate += 1
+                if self.degenerate >= 2:
+                    data.behind_crowd = 1
+                    
+            else:
+                self.degenerate = 0
+                data.behind_crowd = 0
+
             norm = [100, 100, 100]
             min_norm = [100 for i in range(len(data.centroids))]
             min_index = [-1 for i in range(len(data.centroids))]
@@ -84,8 +101,10 @@ class HumanFilter:
                             min_index[i] = j
 
             human_number_output = self.human_number
-            print self.last_human_number, self.human_number
+            #print self.last_human_number, self.human_number
             self.last_human_number = self.human_number
+            self.last_human.behind_crowd = data.behind_crowd
+            print "Is human behind crowd? :", data.behind_crowd
 
             for i in range(human_number_output):
                self.last_human.centroids[i] = data.centroids[min_index[i]]
