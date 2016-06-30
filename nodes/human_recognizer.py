@@ -12,7 +12,7 @@ from geometry_msgs.msg import Vector3
 class HumanDetector:
     def __init__(self):
         self.cluster_sub = rospy.Subscriber("/cluster", Cluster, self.callback)
-        self.marker_pub = rospy.Publisher("/location_markers", MarkerArray)
+        #self.marker_pub = rospy.Publisher("/location_markers", MarkerArray)
         self.pos_pub = rospy.Publisher("/human_location", Person)
         self.pos  = Vector3()
         self.name = ["Kousaka_Honoka", "Yazawa_Niko", "Nishino_Maki", "Ayase_Eri","Minami_Kotori",  "Sonoda_Umi", "Toujo_Nozomi", "Hoshizora_Rin", "Koizumi_hanayo"]
@@ -98,7 +98,7 @@ class HumanDetector:
                     markerArray.markers[i].id = i
                     markerArray.markers[i].lifetime = rospy.Duration(1.0)
 
-                self.marker_pub.publish(markerArray)
+                #self.marker_pub.publish(markerArray)
                 self.pos_pub.publish(people)
 
             else:
