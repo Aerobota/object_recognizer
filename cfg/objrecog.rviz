@@ -76,10 +76,11 @@ Visualization Manager:
       Value: true
     - Class: rviz/MarkerArray
       Enabled: true
-      Marker Topic: /location_markers
+      Marker Topic: /classification_markers
       Name: MarkerArray
       Namespaces:
-        {}
+        "": true
+        bounding_box: true
       Queue Size: 100
       Value: true
   Enabled: true

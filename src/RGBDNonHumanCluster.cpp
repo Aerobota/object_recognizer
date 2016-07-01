@@ -58,7 +58,7 @@ public:
     seg.setModelType (pcl::SACMODEL_PLANE);
     seg.setMethodType (pcl::SAC_RANSAC);
     seg.setMaxIterations (100);
-    seg.setDistanceThreshold (0.02);
+    seg.setDistanceThreshold (0.20);
 
     int i=0, nr_points = (int) cloud->points.size ();
     while (cloud->points.size () > 0.7 * nr_points)
@@ -138,6 +138,7 @@ public:
       double x = (max_point.x - min_point.x);
       double y = (max_point.y - min_point.y);
       double z = (max_point.z - min_point.z);
+
       std::cout << "x y z" << std::endl;
       std::cout << x << " " << y << " " << z << std::endl;
       /** update position */
@@ -171,6 +172,8 @@ public:
 	std::cout << "entered store data" << std::endl;
 	cluster.prob.push_back(prob);
 	cluster.info.push_back(info);
+	cluster.width.push_back(x);
+	cluster.height.push_back(y);
 	sensor_msgs::PointCloud2 cluster_cloud;
 	sensor_msgs::Image image;
 	pcl::toROSMsg(cloud_cluster_list[i], image);

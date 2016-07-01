@@ -1,0 +1,7 @@
+<launch>
+	<include file="$(find realsense)/realsense_r200_launch.launch">
+	</include>
+	<node name="object_cluster" pkg="object_recognizer" type="nonhuman_cluster" launch-prefix="xterm -e"></node>
+	<node name="object_recognizer" pkg="object_recognizer" type="object_detector.py" launch-prefix="xterm -e"></node>
+	<node name="rviz" pkg="rviz" type="rviz" args="-d $(find object_recognizer)/cfg/follow.rviz" launch-prefix="xterm -e"></node>
+</launch>
